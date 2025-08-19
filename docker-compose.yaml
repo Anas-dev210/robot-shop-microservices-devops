@@ -1,0 +1,163 @@
+version: "3.9"
+
+networks:
+  robotshop:
+    driver: bridge
+
+services:
+  mongodb:
+    image: mongo:4.4
+    container_name: mongodb
+    restart: always
+    networks:
+      - robotshop
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+
+  redis:
+    image: redis:6
+    container_name: redis
+    restart: always
+    networks:
+      - robotshop
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    restart: always
+    networks:
+      - robotshop
+    environment:
+      RABBITMQ_DEFAULT_USER: robot
+      RABBITMQ_DEFAULT_PASS: robot
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  mysql:
+    image: mysql:5.7
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ratings
+      MYSQL_USER: ratingsuser
+      MYSQL_PASSWORD: ratingspass
+    networks:
+      - robotshop
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  catalogue:
+    build: ./backend/catalogue
+    container_name: catalogue
+    depends_on:
+      - mongodb
+    networks:
+      - robotshop
+    environment:
+      MONGO_HOST: mongodb
+
+  user:
+    build: ./backend/user
+    container_name: user
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - robotshop
+    environment:
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+
+  cart:
+    build: ./backend/cart
+    container_name: cart
+    depends_on:
+      - redis
+    networks:
+      - robotshop
+    environment:
+      REDIS_HOST: redis
+
+  shipping:
+    build: ./backend/shipping
+    container_name: shipping
+    depends_on:
+      - mysql
+    networks:
+      - robotshop
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ratingsuser
+      DB_PASSWORD: ratingspass
+      DB_NAME: ratings
+
+  payment:
+    build: ./backend/payment
+    container_name: payment
+    networks:
+      - robotshop
+    environment:
+      CART_HOST: cart
+      USER_HOST: user
+
+  ratings:
+    build: ./backend/ratings
+    container_name: ratings
+    depends_on:
+      - mysql
+    networks:
+      - robotshop
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: ratingsuser
+      MYSQL_PASSWORD: ratingspass
+      MYSQL_DATABASE: ratings
+
+  dispatch:
+    build: ./backend/dispatch
+    container_name: dispatch
+    depends_on:
+      - rabbitmq
+    networks:
+      - robotshop
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: robot
+      RABBITMQ_PASSWORD: robot
+
+  frontend:
+    build: ./frontend/web
+    container_name: frontend
+    depends_on:
+      - catalogue
+      - user
+      - cart
+      - shipping
+      - payment
+      - ratings
+      - dispatch
+    networks:
+      - robotshop
+    ports:
+      - "8080:8080"
+    environment:
+      CATALOGUE_HOST: catalogue
+      USER_HOST: user
+      CART_HOST: cart
+      SHIPPING_HOST: shipping
+      PAYMENT_HOST: payment
+      RATINGS_HOST: ratings
+      DISPATCH_HOST: dispatch
+
+volumes:
+  mongodb_data:
+  mysql_data:
